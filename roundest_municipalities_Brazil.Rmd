@@ -1,0 +1,372 @@
+---
+title: "Roundest Brazilian Municipality "
+output:
+  html_document: default
+---
+
+  Inpiration: 
+  [ ] https://github.com/geraldgartner/roundest-or-rectangular-countries/blob/master/roundest_countries.R
+  [ ] https://twitter.com/tjukanov/status/1230783159899475970
+  [ ] https://gciruelos.com/what-is-the-roundest-country.html
+  [ ] https://pappubahry.com/misc/rectangles/code/
+
+
+```{r}
+# Packages
+require(sf) # multipurpose geografical package
+library(ggplot2) # u know
+library(dplyr) # multipoupose data wrangling
+library(geobr) # download shapes from Brasilian municipalities IPEA
+library(rmapshaper) # to reduce shp poligonons 
+library(tripack) # for calculation circunscribing circle
+library(legendMap) # for scale_bar
+library(geosphere) # for distance of points
+library(ggforce) # add-on to ggplot2
+library(cowplot) # for grids of plots 
+library(magick) # for gifs 
+```
+
+
+```{r , echo = FALSE, message = FALSE, warning = FALSE, eval=TRUE, include = FALSE, results = "hide"}
+# download shapefiles from IPEA ::geoBr, simplify for less computational cost
+mun_11 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=11, year=2018)), keep=0.1)
+mun_12 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=12, year=2018)), keep=0.1)
+mun_13 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=13, year=2018)), keep=0.1)
+mun_14 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=14, year=2018)), keep=0.1)
+mun_15 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=15, year=2018)), keep=0.1)
+mun_16 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=16, year=2018)), keep=0.1)
+mun_17 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=17, year=2018)), keep=0.1)
+
+mun_21 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=21, year=2018)), keep=0.1)
+mun_22 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=22, year=2018)), keep=0.1)
+mun_23 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=23, year=2018)), keep=0.1)
+mun_24 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=24, year=2018)), keep=0.1)
+mun_25 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=25, year=2018)), keep=0.1)
+mun_26 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=26, year=2018)), keep=0.1)
+mun_27 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=27, year=2018)), keep=0.1)
+mun_28 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=28, year=2018)), keep=0.1)
+mun_29 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=29, year=2018)), keep=0.1)
+
+mun_31 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=31, year=2018)), keep=0.1)
+mun_32 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=32, year=2018)), keep=0.1)
+mun_33 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=33, year=2018)), keep=0.1)
+mun_35 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=35, year=2018)), keep=0.1)
+
+mun_41 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=41, year=2018)), keep=0.1)
+mun_42 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=42, year=2018)), keep=0.1)
+mun_43 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=43, year=2018)), keep=0.1)
+
+mun_50 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=50, year=2018)), keep=0.1)
+mun_51 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=51, year=2018)), keep=0.1)
+mun_52 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=52, year=2018)), keep=0.1)
+mun_53 <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni=53, year=2018)), keep=0.1)
+
+# I have done it state by state, but you can try every municipality in one call:
+#mun_all <- rmapshaper::ms_simplify(invisible( geobr::read_municipality(code_muni="all", year=2018)), keep=0.1)
+
+mun2 <- list(mun_11,mun_12,mun_13,mun_14,mun_15,mun_16,mun_17,mun_21,mun_22,mun_23,mun_24,mun_25,mun_26, mun_27,
+            mun_28,mun_29, mun_31,mun_32,mun_33,mun_35,mun_41,mun_42,mun_43,mun_50,mun_51,mun_52,mun_53) 
+
+# clean cache
+rm(mun_11,mun_12,mun_13,mun_14,mun_15,mun_16,mun_17,mun_21,mun_22,mun_23,mun_24,mun_25,mun_26, mun_27,
+            mun_28,mun_29, mun_31,mun_32,mun_33,mun_35,mun_41,mun_42,mun_43,mun_50,mun_51,mun_52,mun_53)
+```
+
+  [ ] <a href="https://github.com/cran/tripack">Calculating circuscribed circle FORTRAN way! </a> 
+  [ ] <a href="https://github.com/r-spatial/sf/issues/231">Calculating circuscribed circle</a> 
+
+```{r}
+# function to pass from geometry to two columns as coordinates 
+sfc_as_cols <- function(x, geometry, names = c("x","y")) {
+  if (missing(geometry)) {
+    geometry <- sf::st_geometry(x)
+  } else {
+    geometry <- rlang::eval_tidy(enquo(geometry), x)
+  }
+  stopifnot(inherits(x,"sf") && inherits(geometry,"sfc_POINT"))
+  ret <- sf::st_coordinates(geometry)
+  ret <- tibble::as_tibble(ret)
+  stopifnot(length(names) == ncol(ret))
+  x <- x[ , !names(x) %in% names]
+  ret <- setNames(ret,names)
+  dplyr::bind_cols(x,ret)
+}
+```
+
+
+```{r}
+# function to circuscribe poligiom
+circunscribe <- function (state) {
+  
+    # due to problems in RS and MT arrange first is necessary, but the underling reason scapes me...  
+    k1 <- state[complete.cases(state$name_muni), ] %>% dplyr::arrange(name_muni)
+    #k1<- k1[k1$name_muni!="Lagoa Mirim" | k1$name_muni!="Lagoa Dos Patos" ,]
+
+    
+    for (i in 1:nrow(k1)){
+      # transform shape to cloud of points
+       k <- sf::st_cast(x = k1[i,], "POINT") %>% sfc_as_cols( geometry = geometry)
+      # calculate minimum circle around every point using Fortran code from last milenium, nice! 
+       k1$circle_x[i] <- as.numeric(tripack::circumcircle(x = k$x, y = k$y)[1]) # x
+       k1$circle_y[i] <- as.numeric(tripack::circumcircle(x = k$x, y = k$y)[2]) # y
+       k1$circle_r[i] <- as.numeric(tripack::circumcircle(x = k$x, y = k$y)[3]) # radius
+    }
+
+    # retrive the area of the shape and of the circle; calculate the ratio btw them.
+    k <- k1 %>% 
+               dplyr::mutate(area_shape = units::set_units(sf::st_area(geometry), km^2),
+                             area_circle = (pi * (as.numeric(circle_r) * 100)^2), 
+                             ratio = round((area_shape/area_circle * 100), 1)) %>%
+               dplyr::arrange(ratio)
+
+    # position of scalebar, center of circle travel bearing 225 degrees, radius plus some
+    k <- k %>% dplyr::group_by(name_muni, code_muni, abbrev_state, code_state) %>%
+               dplyr::mutate(
+                            scalebar_pos_x = geosphere::destPoint(
+                                         p = c(circle_x, circle_y),
+                                         b = 221, 
+                                         d = circle_r * 100000 * 1.50)[1],
+                            scalebar_pos_y = geosphere::destPoint(
+                                         p = c(circle_x, circle_y),
+                                         b = 220, 
+                                         d = circle_r * 100000 * 1.70)[2])
+
+    return(k)
+}
+
+```
+
+
+```{r}
+# call the function for every state
+mun3 <- lapply(mun2, circunscribe)
+
+# rbind the list of states
+d <- do.call("rbind", mun3)
+
+#d1 <- d[d$name_muni=="Ocara",]
+d <- d  %>% dplyr::arrange(-ratio) 
+d$rank <- 1:nrow(d)
+
+# exclude two RS lakes
+d<-d[d$code_muni != 4300002 & d$code_muni != 4300001,]
+
+# save data
+#saveRDS(object = d, file = "./Dados.RDS")
+
+```
+
+
+```{r, fig.height = 7, fig.width = 7}
+#################################################################################################
+# create map and bits around it
+#################################################################################################
+d1 <- d[,]
+#d1 <- d[d$name_muni=="Barra Do Bugres",]
+
+# projection (giving by geoBr)
+d1 <- sf::st_as_sf(d1) %>% st_set_crs(4674) #%>% st_transform(3857)
+
+for (i in c(1)){ #1:nrow(d1) or c(11:50, 5520:5570)
+# height of scalebar. Made based on radius of the circle so it keeps the same proportion on every map. 
+#Note, it is the same height, but not the same width.
+scalebar_height <- d1$circle_r[i] * 5
+
+# width of scalebar, depends on the zoom of the map
+scalebar_width <- 1
+if(d1$circle_r[i] *100 < 1000) { scalebar_width = 300}
+if(d1$circle_r[i] *100 < 500) { scalebar_width = 100}
+if(d1$circle_r[i] *100 < 200) { scalebar_width = 50}
+if(d1$circle_r[i] *100 < 100) { scalebar_width = 25}
+if(d1$circle_r[i] *100 < 50) { scalebar_width = 15}
+if(d1$circle_r[i] *100 < 40) { scalebar_width = 10}
+if(d1$circle_r[i] *100 < 20) { scalebar_width = 5}
+if(d1$circle_r[i] *100 < 10) { scalebar_width = 2}
+if(d1$circle_r[i] *100 < 5) { scalebar_width = 1}
+if(d1$circle_r[i] *100 < 2) { scalebar_width = 0.5}
+
+# plot map
+m <- ggplot2::ggplot(data = d1) +
+          geom_sf(mapping = aes(geometry = geometry), 
+                  colour = "gray60", 
+                  fill = "white") +
+          geom_sf(mapping = aes(geometry = geometry[i]), 
+                  colour = "black", 
+                  fill = "steelblue") +
+          ggforce::geom_circle(aes(x0 = circle_x[i], 
+                          y0 = circle_y[i],
+                          r = circle_r[i]), 
+                          size = 1.5,
+                          linetype = "dashed") +
+          theme_void() + 
+          theme(legend.position="none") +
+          geom_text(aes(x = circle_x[i] , 
+                        y = circle_y[i], 
+                        label = paste(name_muni[i],"-",abbrev_state[i])),
+                        size = 8 , 
+                        fontface = c("bold") ) +
+          legendMap::scale_bar(lat = d1$scalebar_pos_y[i],
+                               lon = d1$scalebar_pos_x[i],
+                               distance_lon = scalebar_width,
+                               distance_lat = scalebar_height,
+                               distance_legend = scalebar_height * 1.8,
+                               dist_unit = "km",
+                               orientation = FALSE) +
+          coord_sf(xlim = c(d1$circle_x[i] + (d1$circle_r[i] * 1.1), d1$circle_x[i] - (d1$circle_r[i] * 1.1)), 
+                   ylim = c(d1$circle_y[i] + (d1$circle_r[i] * 1.1), d1$circle_y[i] - (d1$circle_r[i] * 1.2)),
+                   expand = FALSE) 
+
+# Brazilain minimap
+m1 <- ggplot2::ggplot() +
+          geom_sf(data = states, 
+                  mapping = aes(geometry = geometry), 
+                  colour = "gray20", 
+                  fill = "lightgray") + 
+          geom_point(data=d1[i,],aes(circle_x,circle_y),
+                     colour="red",
+                     size=3) +
+          theme_void() + 
+          theme(legend.position="none")   
+
+# minimap and large map together, plus some text
+m2 <- cowplot::ggdraw(m) +
+      cowplot::draw_plot(m1, width = 0.23, height = 0.23, x = 0.77, y = 0.0) +
+      cowplot::draw_label(label = d1$ratio[i], x = 0.90, y = 0.94, color = "black", size = 44) +
+      cowplot::draw_label(label = "Ratio", x = 0.84, y = 0.99, color = "black", size = 11) +
+      cowplot::draw_label(label = paste0(d1$rank[i], "th"), x = 0.15, y = 0.95, color = "black", size = 44)
+
+# save png
+#cowplot::ggsave2(plot = m2, filename = paste0("./IMG/",i, d1$abbrev_state[i]," ",d1$ratio[i]," ",d1$name_muni[i]," ", d1$code_muni[i], ".png"))
+print(m2)
+gc()
+}
+
+```
+
+```{r, fig.height = 7, fig.width = 7}
+###########################################################################################################
+# special case, Vitoria ES
+###########################################################################################################
+#d1 <- d[5570,]
+d1 <- d[]
+
+# projection
+d1 <- sf::st_as_sf(d1) %>% st_set_crs(4674) #%>% st_transform(3857)
+
+for (i in c(5570:5570)){ #1:nrow(d1)
+#for (i in c(1)){ #1:nrow(d1)
+# height of scalebar. Made based on radius of the circle so it keeps the same proportion on every map. 
+#Note, it is the same height, but not the same width.
+scalebar_height <- d1$circle_r[i] * 5
+
+# width
+scalebar_width <- 1
+if(d1$circle_r[i] *100 < 1000) { scalebar_width = 300}
+if(d1$circle_r[i] *100 < 500) { scalebar_width = 100}
+if(d1$circle_r[i] *100 < 200) { scalebar_width = 50}
+if(d1$circle_r[i] *100 < 100) { scalebar_width = 25}
+if(d1$circle_r[i] *100 < 50) { scalebar_width = 15}
+if(d1$circle_r[i] *100 < 40) { scalebar_width = 10}
+if(d1$circle_r[i] *100 < 20) { scalebar_width = 5}
+if(d1$circle_r[i] *100 < 10) { scalebar_width = 2}
+if(d1$circle_r[i] *100 < 5) { scalebar_width = 1}
+if(d1$circle_r[i] *100 < 2) { scalebar_width = 0.5}
+
+# plot map
+m <- ggplot2::ggplot(data = d1) +
+          geom_sf(mapping = aes(geometry = geometry), 
+                  colour = "gray60", 
+                  fill = "white") +
+          geom_sf(mapping = aes(geometry = geometry[i]), 
+                  colour = "black", 
+                  fill = "steelblue") +
+          ggforce::geom_circle(aes(x0 = circle_x[i], 
+                          y0 = circle_y[i],
+                          r = circle_r[i]), 
+                          size = 1.5,
+                          linetype = "dashed") +
+          theme_void() + 
+          theme(legend.position="none") +
+          geom_text(aes(x = circle_x[i] , 
+                        y = circle_y[i], 
+                        label = paste(name_muni[i],"-",abbrev_state[i])),
+                        size = 8 , 
+                        fontface = c("bold") ) +
+          legendMap::scale_bar(lat = d1$scalebar_pos_y[i],
+                               lon = d1$scalebar_pos_x[i],
+                               distance_lon = scalebar_width,
+                               distance_lat = scalebar_height,
+                               distance_legend = scalebar_height * 1.8,
+                               dist_unit = "km",
+                               orientation = FALSE) +
+          coord_sf(xlim = c(d1$circle_x[i] + (d1$circle_r[i] * 1.1), d1$circle_x[i] - (d1$circle_r[i] * 1.1)), 
+                   ylim = c(d1$circle_y[i] + (d1$circle_r[i] * 1.1), d1$circle_y[i] - (d1$circle_r[i] * 1.2)),
+                   expand = FALSE) 
+
+# Brazilain minimap
+m1 <- ggplot2::ggplot() +
+          geom_sf(data = states, 
+                  mapping = aes(geometry = geometry), 
+                  colour = "gray20", 
+                  fill = "lightgray") + 
+          geom_point(data=d1[i,],aes(circle_x,circle_y),
+                     colour="red",
+                     size=13) +
+          theme_void() + 
+          theme(legend.position="none")  +
+          coord_sf(xlim = c(d1$circle_x[i] + (d1$circle_r[i] * 1.1), -74),
+                   expand = FALSE) 
+
+# minimap and large map together, plus some text
+m2 <- cowplot::ggdraw(m) +
+      cowplot::draw_plot(m1, width = 0.23, height = 0.23, x = 0.77, y = 0.0) +
+      cowplot::draw_label(label = 0.0092, x = 0.85, y = 0.94, color = "black", size = 44) +
+      cowplot::draw_label(label = "Ratio", x = 0.84, y = 0.99, color = "black", size = 11) +
+      cowplot::draw_label(label = paste0(d1$rank[i], "th"), x = 0.15, y = 0.95, color = "black", size = 44)+
+
+      cowplot::draw_line( x = c(0.103, 0.113), y = c(0.53, 0.50), color = "black", size = 0.5) +
+      cowplot::draw_label(label = "Mainland Vitória", x = 0.19, y = 0.50, color = "black", size = 11) +
+      cowplot::draw_line( x = c(0.870, 0.86), y = c(0.505, 0.46), color = "black", size = 0.5) +
+      cowplot::draw_label(label = "Trindade Island", x = 0.81, y = 0.45, color = "black", size = 11) +
+      cowplot::draw_line( x = c(0.90, 0.86), y = c(0.52, 0.565), color = "black", size = 0.5) +
+      cowplot::draw_label(label = "Martim Vaz", x = 0.83, y = 0.58, color = "black", size = 11) 
+
+# save png
+cowplot::ggsave2(plot = m2, filename = paste0("./IMG/",i, d1$abbrev_state[i]," ",d1$ratio[i]," ",d1$name_muni[i]," ", d1$code_muni[i], "A.png"))
+#print(m2)
+gc()
+}
+
+```
+
+
+```{r , include=TRUE, message=FALSE, warning=FALSE, eval=FALSE, echo=TRUE}
+# GIF and video
+
+# list of images in file
+frames <- paste0("./IMG/G/", c(1000:1001, 0:25, 5550:5574, 6571:6578), ".png")
+
+# do the magick!
+m <- magick::image_read(frames)
+
+# resize all frames for twitter
+m <- magick::image_resize(image = m, "1400x1400!" )
+
+# save as video
+magick::image_write_video(m, "./IMG/G/video.mp4")
+
+# create gif
+m2 <- magick::image_animate(m, fps = 1)
+m2
+
+# save the gif (dont work for too large a file, but RStudio viwer can display it and you can save it from there)
+magick::image_write(m, "./IMG/G/GIF.gif")
+```
+
+
+
+
+
+
+
+
