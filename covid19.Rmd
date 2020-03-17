@@ -1,0 +1,208 @@
+---
+title: "COVID19"
+author: "Arthur Welle"
+date: "17/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(gganimate)
+library(dplyr)
+library(tidyverse)
+library(gifski)
+library(av)
+library(countrycode)
+library(ggrepel)
+library(ggannotate) # annotations make easy
+library(tempdisagg) # time series convertion to higher frequency
+library(tsbox) # associated with tempdisagg
+library(magick) 
+```
+
+
+```{r, fig.height = 6, fig.width = 11}
+# download data from Johns Hopkins github https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series
+confirmed <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv')
+deaths <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv')
+recovered <- read_csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv')
+```
+
+
+```{r, fig.height = 6, fig.width = 11}
+# long format agregate by contry
+d <- confirmed %>%
+     tidyr::pivot_longer(cols = -c(1:4), names_to = "date", values_to = "cases") %>%
+     dplyr::mutate(Country = case_when(`Country/Region` == "China" ~ "China rest", TRUE ~ `Country/Region`),
+                   Country = case_when(`Province/State` == "Hubei" ~ "Hubei China", TRUE ~ Country),
+                   date = unlist(as.Date(lubridate::fast_strptime(date, '%m/%d/%y'))))  %>%
+     dplyr::group_by(Country, date) %>%  
+     dplyr::summarise(cases = sum(cases, na.rm = T)) %>%  
+     dplyr::group_by(Country) %>%
+     dplyr::arrange(Country) %>%
+     dplyr::mutate(last_count = max(cases),
+                   one_week_earlier = lag(cases, n = 7L),
+                   one_day_foward = lead(cases, n = 1L),
+                   percent_last_week = (cases - one_week_earlier)/ cases,
+                   percent_last_week_one_day_foward = lead(percent_last_week, n = 1L),
+                   dayly_growth_rate = (cases - lag(cases))/lag(cases) ) %>%
+     #dplyr::filter(last_count >= 500) %>%
+     #dplyr::filter(cases >= 30) %>%
+     dplyr::filter(last_count >= 30) %>%
+     dplyr::filter(cases >= 5) %>%
+     na.omit() %>%
+     dplyr::mutate(continent = countrycode::countrycode(sourcevar = Country, origin ='country.name', destination = 'continent'),
+                       continent = case_when(Country == "Cruise Ship" ~ "Other",
+                        TRUE ~ continent),
+                   code = countrycode::countrycode(sourcevar = Country, origin ='country.name', destination = 'iso2c'),
+                       code = case_when(Country == "China rest" ~ "CN-Rest",
+                                        Country == "Hubei China" ~ "Hubei-CN",
+                                        Country == "Cruise Ship" ~ "Ship",
+                                        TRUE ~ code)
+                   ) %>%
+      dplyr::filter(code != "Ship") 
+
+d$continent <- factor(d$continent, levels = c("Africa","Americas", "Asia","Europe","Oceania","Other"))
+d$continent <- factor(d$continent, levels = c("Africa","Americas", "Asia","Europe","Oceania"))
+
+```
+
+
+```{r, fig.height = 8, fig.width = 10}
+# create a color palete for the continents
+color_palete1 <- c("#d696bb", "#fa3c4c", "#ffc300", "#44bec7", "#0084ff", "gray30")
+color_palete1 <- c("#d696bb", "#fa3c4c", "#ffc300", "#44bec7", "#0084ff")
+
+# number of interpolations
+n_interpolations <- 4
+
+for( i in sort(unique(d$date))[]) {
+  d1 <- d[d$date==i,]
+  
+  for (j in 0:(n_interpolations-1)){ 
+    # grafical results
+    g0 <- ggplot(d1, # only one day per time
+                   aes(x = percent_last_week + ((percent_last_week_one_day_foward - percent_last_week)/(n_interpolations) * j), 
+                       y = cases + ((one_day_foward - cases)/n_interpolations * j), 
+                   color = continent)) +
+            scale_y_continuous(trans = 'log10', # forcing same scale in every frame
+                               breaks = c(10, 100, 1000, 10000, 100000),
+                               limits = c(10,100000),
+                               labels = scales::number_format(accuracy = 1) ) +
+            scale_x_continuous(labels = scales::percent,
+                               limits = c(0,1)) + 
+            annotate( geom = "rect", 
+                      xmin=0.6,
+                      xmax=0.99, 
+                      ymin=800, 
+                      ymax=36000,
+                      fill = "pink", 
+                      colour = "gray50", 
+                      alpha = 0.5) +
+            annotate( geom = "text", 
+                      x = 0.8,
+                      y = 66000,
+                      label = "High growth rate and \nhigh number of cases", 
+                      colour = "black",
+                      size = 8) +      
+            annotate( geom = "rect", 
+                      xmin=0.0,
+                      xmax=0.15, 
+                      ymin=700, 
+                      ymax=100000,
+                      fill = "lightgreen", 
+                      colour = "gray50", 
+                      alpha = 0.5) +  
+            annotate( geom = "text", 
+                      x = 0.075,
+                      y = 300,
+                      label = "Locally\n controlled\n epidemic", 
+                      colour = "black",
+                      size = 8) +        
+            geom_point(size = 3, 
+                       show.legend = T,
+                       key_glyph = draw_key_vline) +
+            scale_color_manual(values = c(color_palete1),
+                    labels = c(levels(d$continent)),
+                    drop = FALSE) +
+            ggrepel::geom_label_repel(aes(label = code),
+                            size = 5,
+                            box.padding = 0.0,
+                            point.padding = 0.0,
+                            label.r = 0.3,
+                            label.size = 1.5,
+                            segment.color = 'grey50',
+                            show.legend = F,
+                            force = 3) +
+            theme_light() +
+            labs(y = "Acummulated number of cases", 
+                 x = "% of total cases that are from prior week") +
+            theme(text = element_text(size=14),
+                  axis.text.x = element_text(color = "grey10", size = 17),
+                  axis.text.y = element_text(color = "grey10", size = 17),
+                  axis.title = element_text( size=18, face="bold"),
+                  legend.text = element_text(size=15),
+                  legend.title = element_blank(),
+                  panel.grid.major = element_line(color = "grey70", size = 0.5 , linetype = "dashed"),  
+                  panel.grid.minor = element_line(color = "grey90", size = 0.3),
+                  panel.border = element_rect(color = "black", size = 0.8)) + 
+            guides(colour = guide_legend(override.aes = list(size=13))) 
+
+    
+    # minimap and large map together, plus some text
+    g0 <- cowplot::ggdraw(g0) +
+    cowplot::draw_label(label = as.character(max(d1$date)), x = 0.91, y = 0.95, color = "black", size = 24)
+
+    #print(g0)
+    # save png
+    #cowplot::ggsave2(plot = g0, filename = paste0("./IMG/",i,j, ".png"))
+    cowplot::ggsave2(plot = g0, filename = "./IMG/graph.png")
+    
+    k <- magick::image_read("./IMG/graph.png")
+    k <- magick::image_resize(image = k, "1400x1200!" )
+    magick::image_write(k, paste0("./IMG/Todos/",i,j,".png"))
+    gc()
+  }  
+}
+
+
+```
+
+
+```{r , include=TRUE, message=FALSE, warning=FALSE, eval=FALSE, echo=TRUE}
+# GIF and video
+
+# list of images in file
+frames <- paste0("./IMG/", list.files(path = "./IMG/", pattern = ".png"))
+
+# resize all frames for twitter
+for (i in 1:length(frames)) { #
+    k0 <- magick::image_read(frames[i])
+    k <- magick::image_resize(image = k0, "1400x1200!" )
+    magick::image_write(k, paste0("./IMG/Menor/",i,".png"))
+    gc()
+}
+```
+
+
+```{r , include=TRUE, message=FALSE, warning=FALSE, eval=FALSE, echo=TRUE}
+# list of images in file, now smaller
+frames <- paste0("./IMG/Menor/", list.files(path = "./IMG/Menor/", pattern = ".png"))
+
+# do the magick!
+m <- magick::image_read(frames)
+
+# save as video
+magick::image_write_video(m, "./IMG/Menor/video.mp4")
+
+# create gif
+m2 <- magick::image_animate(m, fps = 10)
+#m2
+
+# save the gif (dont work for too large a file, but RStudio viwer can display it and you can save it from there)
+magick::image_write(m, "./IMG/Menor/GIF.gif")
+```
