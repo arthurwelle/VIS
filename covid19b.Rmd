@@ -1,0 +1,160 @@
+---
+title: "COVID19"
+author: "Arthur Welle"
+date: "17/03/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# packages
+library(geobr) # shapes from Brazil
+library(lubridate) # work with dates
+library(magick) # video/gif
+library(sf) # new version of geo based data manipulation, old is sp
+library(tidyverse) # multiple toolbox
+library(maptools) # help functions
+library(cowplot) # grid plots
+
+```
+
+### Brazil
+
+```{r}
+# state geodata
+state_geo <- rmapshaper::ms_simplify(geobr::read_state(code_state = "all", year = 2018), keep=0.05)
+
+# projection (giving by geoBr)
+state_geo <- sf::st_as_sf(state_geo) %>% st_set_crs(4674) 
+```
+
+```{r}
+# municipality in time ----------------------------------------------------
+# import data
+mun_cases_time <- readr::read_csv("https://raw.githubusercontent.com/wcota/covid19br/master/cases-brazil-cities-time.csv") %>% 
+  dplyr::filter(city != "TOTAL") %>% 
+  tidyr::separate(city, c("name_muni", "abbrev_state"), sep = "/") %>% 
+  dplyr::mutate(name_muni = stringr::str_to_title(name_muni))
+
+# centroids
+mun_geo_cen <- geobr::read_municipal_seat(year = 2010)
+mun_geo_cen
+
+```
+
+
+```{r}
+# join data
+mun_geo_cen_cases_time <- mun_geo_cen %>%
+  dplyr::mutate(name_muni = as.character(name_muni)) %>% 
+  dplyr::left_join(mun_cases_time, by = "name_muni") %>% 
+  dplyr::mutate(date = as.factor(date)) %>% 
+  tidyr::drop_na(date)
+
+# bind a lat lon 
+mun_geo_cen_cases_time <- cbind(mun_geo_cen_cases_time, st_coordinates(mun_geo_cen_cases_time))
+
+# create colum with values from one day prior
+d <- mun_geo_cen_cases_time %>%
+     dplyr::group_by(name_muni, code_state) %>%     
+     dplyr::arrange(code_state, name_muni, date ) %>%
+     dplyr::mutate(one_day_earlier = lag(totalCases, n = 1L),
+                   one_day_foward = lead(totalCases, n = 1L),
+                   date2 = as.Date(date, format = '%m/%d/%Y'),
+                   one_week_earlier = lag(totalCases, n = 7L),
+                   percent_last_week = (totalCases - one_week_earlier)/ totalCases,
+                   growth_rate = (totalCases - one_day_earlier)/one_day_earlier,
+                   mm4_growth_rate = zoo::rollapply(growth_rate,4,mean,align='right',fill=NA),
+                   mm4_growth_rate = ifelse(mm4_growth_rate >.2, .2, mm4_growth_rate))  
+
+#view(d$date)
+```
+
+
+```{r, fig.height = 8, fig.width = 10}
+# max os cases 
+max <- max(d$totalCases)
+myPalette <- colorRampPalette(c("green", "gold1","orange","red1", "red4"))
+
+# number of interpolations
+n_interpolations <- 1
+
+# create loop to draw grph
+for( i in sort(unique(d$date))[]) { # 26 = 27/março
+  d1 <- d[d$date==i,] %>% dplyr::arrange(-totalCases)
+  
+  for (j in 0:(n_interpolations-1)){
+
+# create graph
+g <- ggplot2::ggplot() +
+        geom_sf(data = state_geo,
+                mapping = aes(geometry = geom),
+                size = .5,
+                colour = "gray60",
+                fill = "white") +
+        geom_point(data = d1,
+                   shape=21, # circle with fill and color attributes
+                   mapping = aes(
+                          x = X, 
+                          y = Y,
+                          size = one_day_earlier + ((totalCases - one_day_earlier)/n_interpolations * j), 
+                          fill = mm4_growth_rate,
+                          stroke = 0.5),
+                   color = "black", 
+                   alpha = .5) +
+        theme_void() +
+        coord_sf(xlim = c(-75, -20),
+                 ylim = c(-35,7),
+                 expand = FALSE, 
+                 crs = 4674)  +
+        scale_size_area(max_size = 40, 
+                        name = "   Cases",
+                        limits = c(1, max), 
+                        breaks = c(0, 10, 50, 100, 200, 500)) +
+        scale_fill_gradientn(colours = myPalette(100),
+                            limits = c(0, .2),
+                            name = "Growth rate",
+                            labels = c("0-5%", "6-10%", "11-15%", "16-20%", ">20%")) +
+        guides(fill = guide_legend(override.aes = list(alpha = .7,
+                                                       shape = c(rep(21,5)),
+                                                       size = 8))) + 
+        legendMap::scale_bar(lon = -40 ,
+                             lat = -33 ,
+                             distance_lon = 400,
+                             distance_lat = 50,
+                             distance_legend = 150,
+                             dist_unit = "km",
+                             legend_size = 4,
+                             orientation = FALSE) +
+        theme(legend.title=element_text(size=18),
+              legend.text=element_text(size=16),
+              legend.background = element_rect(fill="white",
+                                  size=0.5, 
+                                  linetype="solid", 
+                                  colour ="gray80"),
+              legend.text.align = 1,
+              legend.key.size = unit(0, 'lines'),
+              legend.position = c(.9,.55)) 
+
+
+
+    # plus some text
+    g <- cowplot::ggdraw(g) +
+    cowplot::draw_label(label = as.character(d1$date), x = 0.11, y = 0.97, color = "black", size = 28) +
+    cowplot::draw_label(label = "by @ArthurWelle", x = 0.08, y = 0.02, color = "black", size = 14)      
+
+    print(g)
+    # save png
+    # cowplot::ggsave2(plot = g, filename = paste0("./Paises/graph.png"))
+    # k <- magick::image_read("./Paises/graph.png")
+    # k <- magick::image_resize(image = k, "1400x1200!" )
+    # magick::image_write(k, paste0("./Paises/BRA/",i,j,".png"))
+    gc()
+  }  
+}
+
+```
+
