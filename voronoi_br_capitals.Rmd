@@ -1,0 +1,158 @@
+---
+title: "Voronoi Brazil proximity to state capitals"
+author: "Arthur Welle"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(sf)
+library(rmapshaper)
+library(geobr)
+```
+
+
+# Get the data
+
+```{r}
+# state geodata
+state_geo <- rmapshaper::ms_simplify(geobr::read_state(code_state = "all", year = 2018, showProgress = FALSE), keep=0.05)
+
+# projection (giving by geoBr)
+state_geo <- sf::st_as_sf(state_geo) %>% st_set_crs(4674)
+
+# position of Brazilian municipalities (city center)
+mun_geo_cen <- geobr::read_municipal_seat(year = 2010, showProgress = FALSE)
+
+# list of capitals
+list_of_capitals <- c( 
+          "São Paulo"
+         ,"Rio de Janeiro"
+         ,"Brasília"
+         ,"Salvador"
+         ,"Fortaleza"
+         ,"Belo Horizonte"
+         ,"Manaus"
+         ,"Curitiba"
+         ,"Recife"
+         ,"Goiânia"
+         ,"Belém"
+         ,"Porto Alegre"
+         ,"São Luís"
+         ,"Maceió"
+         ,"Campo Grande"
+         ,"Natal"
+         ,"Teresina"
+         ,"João Pessoa"
+         ,"Aracaju"
+         ,"Cuiabá"
+         ,"Porto Velho"
+         ,"Macapá"
+         ,"Florianópolis"
+         ,"Rio Branco"
+         ,"Boa Vista"
+         ,"Vitória"
+         ,"Palmas"
+)
+
+# featch coding from every capital 
+d <- data.frame(matrix(NA, nrow = 1, ncol = 27))
+for(i in 1:27){d[i] <- geobr::lookup_muni(list_of_capitals[i])}
+d <- as.data.frame(t(d))
+d$name <- list_of_capitals
+colnames(d) <- c("code_muni", "name")
+
+# select geom centroid of every capital
+mun_geo_cen2 <- mun_geo_cen %>% 
+                dplyr::left_join(., d) %>% 
+                dplyr::filter(!is.na(name))
+
+```
+
+# Make Veronoi tessellation
+
+```{r}
+#create boundary box of the undelaying map 
+box <- sf::st_bbox( state_geo ) %>% st_as_sfc()
+
+#craete voronoi polygons
+v <- sf::st_voronoi(sf::st_union( mun_geo_cen2 ) )
+
+# sepate the colection of geometries
+v <- st_collection_extract(v)
+
+# crop with boundaries, as sf
+v <- st_crop(v, box) %>% sf::st_as_sf()
+
+# crop even further only the underliying map 
+v <- sf::st_intersection(sf::st_cast(v), sf::st_union(state_geo))
+
+# create column for random color
+set.seed(160) #28, 89 156
+v$color <- c(round(runif(min = 1, max = 11, n = 27)))
+```
+
+# Plot
+
+```{r, width = 8, height = 8}
+# plot
+g <- ggplot2::ggplot() +
+        geom_sf(data = v,
+                mapping = aes(geometry = x,
+                              fill = factor(color)),
+                alpha = (1)) +
+        geom_sf(data = state_geo,
+                mapping = aes(geometry = geom),
+                size = .5,
+                colour = "black",
+                fill = "white",
+                alpha = (0)) +        
+        geom_sf(data = mun_geo_cen2,
+                mapping = aes(geometry = geom)) +
+        coord_sf(xlim = c(-75, -20),
+                 ylim = c(-35,7),
+                 expand = FALSE, 
+                 crs = 4674) +  
+        theme_void() +
+        theme(legend.position = "none") +
+        labs(
+           title = "Brazilian Closest State Capital",
+           subtitle = "Voronoi tessellation of Brazilian state capitals",
+           caption = "@ArthurWelle") +
+        theme(
+            plot.title = element_text(size = 28, face = "bold", hjust = 0.05),
+            plot.subtitle = element_text(hjust = 0.05, size = 20),
+            plot.caption = element_text(hjust = 0.05),
+            plot.title.position = "plot",
+            plot.caption.position =  "plot")  
+
+g
+```
+
+# Save as image
+
+```{r}
+# save image as png
+ggplot2::ggsave(filename = "voronoi_br_state_capitals.png", 
+                plot = g, 
+                path = "./", 
+                dpi = "retina", 
+                width = 8, 
+                height = 8)
+```
+
+
+
+
+
+
+
+
+
+
