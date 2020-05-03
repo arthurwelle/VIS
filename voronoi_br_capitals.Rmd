@@ -68,6 +68,9 @@ d <- as.data.frame(t(d))
 d$name <- list_of_capitals
 colnames(d) <- c("code_muni", "name")
 
+# correct for Campo Grande
+d <- d %>% dplyr::mutate(code_muni = ifelse(name == "Campo Grande", 5002704, code_muni))
+
 # select geom centroid of every capital
 mun_geo_cen2 <- mun_geo_cen %>% 
                 dplyr::left_join(., d) %>% 
@@ -96,6 +99,8 @@ v <- sf::st_intersection(sf::st_cast(v), sf::st_union(state_geo))
 # create column for random color
 set.seed(160) #28, 89 156
 v$color <- c(round(runif(min = 1, max = 11, n = 27)))
+v$color[2] <- 1
+v$color[27] <- 1
 ```
 
 # Plot
