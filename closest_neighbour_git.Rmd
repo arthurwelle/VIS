@@ -1,0 +1,120 @@
+---
+title: "Voronoi Brazil proximity to state capitals"
+author: "Arthur Welle"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(sf)
+library(rmapshaper)
+library(rnaturalearth)
+```
+
+# Get the data
+
+```{r}
+# 1 download map 
+map <- rnaturalearth::ne_countries(
+                scale = 'large', 
+                type = 'map_units',
+                returnclass = 'sf')
+
+# 1.1 Select South america
+map2 <- map %>% 
+        dplyr::select(adm0_a3, name, continent, geometry, name_long) %>% 
+        #rmapshaper::ms_simplify( keep = 0.5) %>% 
+        dplyr::filter(continent == "South America" | name_long == "Saint Helena" ) 
+
+# Brazil
+br <- map2 %>% dplyr::filter(name == "Brazil")  
+
+# rest of neighbours without Brazil
+map2 <- map2 %>% dplyr::filter(!(name == "Brazil" | name == "Chile"| name == "Ecuador")) 
+
+# 2. Extract Vertices from selected polygons
+m <- sf::st_cast(map2, 'POINT')
+  
+#create boundary box of the undelaying map 
+box_br <- sf::st_bbox( br ) %>% st_as_sfc()
+
+#craete voronoi polygons
+v <- sf::st_voronoi(sf::st_union( m ) )
+
+# sepate the colection of geometries
+v <- st_collection_extract(v) 
+
+# crop with boundaries, as sf
+v <- st_crop(v, box_br) %>% sf::st_as_sf()
+
+# 4. Dissolve results using country name/id]
+p <- m %>% 
+    dplyr::group_by(name) %>% 
+    dplyr::summarise(geometry = st_union(geometry)) 
+
+# find points inside some poligons (is a workaround), aim: take atribute of the point to the polygon
+p_sp <- as(p,  Class = "Spatial")
+v_sp <- as(v,  Class = "Spatial")
+v$name <- sp::over(v_sp, p_sp[,"name"])
+
+# join polygons by name
+r <- v %>% 
+     dplyr::filter(!is.na(name)) %>% 
+     dplyr::group_by(name) %>% 
+     dplyr::summarise(teste=1, do_union = TRUE)
+
+# crop even further only the underliying map 
+r2 <- sf::st_intersection(sf::st_cast(r), sf::st_union(br)) 
+
+```
+
+# Plot
+
+```{r, width = 8, height = 8}
+# plot
+g <- ggplot2::ggplot() +
+        geom_sf(data = map,
+                mapping = aes(geometry = geometry), 
+                fill = "gray95") +
+        geom_sf(data = r2,
+                mapping = aes(geometry = x,
+                              fill = name$name),
+                size = 0.7,
+                colour = "black") +        
+        coord_sf(xlim = c(-95, -20),
+                 ylim = c(-37,11),
+                 expand = FALSE, 
+                 crs = 4674) +  
+        scale_fill_brewer(palette = "Set1") +
+        theme_void() +
+        theme(legend.position = "none") +
+        labs(
+           title = "Closest country when in Brazil\n ",
+           caption = "@ArthurWelle") +
+        theme(
+            plot.title = element_text(size = 34, face = "bold", hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.05, size = 20),
+            plot.caption = element_text(hjust = 0.05),
+            plot.title.position = "plot",
+            plot.caption.position =  "plot")  
+
+g
+```
+
+# Save as image
+
+```{r}
+# save image as png
+ggplot2::ggsave(filename = "closest_neighbour.png", 
+                plot = g, 
+                path = "./", 
+                dpi = "retina", 
+                width = 8, 
+                height = 8)
+```
