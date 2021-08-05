@@ -1,0 +1,89 @@
+---
+title: "Brazil on top: olympic results weighted by Gini index"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# Autor: Arthur Welle
+# E-mail: arthurwelle@gmail.com
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Carregando os pacotes
+library(tidyverse) 
+library(rvest)
+library(countrycode)
+library(WDI) # install.packages('WDI')
+library(knitr)
+```
+
+```{r}
+# data from gini World Bank (WDI)
+d <- WDI::WDI(indicator = "SI.POV.GINI", extra = TRUE)  %>% 
+    drop_na(SI.POV.GINI) %>% 
+    select(gini = SI.POV.GINI, year, Country_iso3c = iso3c) %>% 
+    group_by(Country_iso3c) %>%
+    arrange(year) %>% 
+    slice_tail() %>% 
+    mutate(Country_ioc = countrycode::countrycode(Country_iso3c, origin = 'wb', destination = 'ioc')) 
+```
+
+```{r}
+# gini missing
+missing_gini <- tribble(
+    ~Country_ioc, ~gini, #~source,
+    "TPE", 33.9, #"https://www.statista.com/statistics/922574/taiwan-gini-index/", # taiwan
+    "NZL", 32.5,# "https://knoema.com/atlas/New-Zealand/topics/Poverty/Income-Inequality/GINI-index,",# new zeeland
+    "CUB", 38, #"https://www.reuters.com/article/us-cuba-reform-inequality-idUSN1033501920080410",  # Cuba
+    "QAT", 41.1,# "https://worldpopulationreview.com/country-rankings/gini-coefficient-by-country", # Qatar
+    "VEN", 39, #"https://worldpopulationreview.com/country-rankings/gini-coefficient-by-country", # Venezuela
+    "HKG", 53.9, #"https://worldpopulationreview.com/country-rankings/gini-coefficient-by-country", # hong kong
+    "BER", 63,# "http://www.confiduss.com/en/jurisdictions/bermuda/economy/", # Bermuda
+    "PUR", 55, #"https://www.statista.com/statistics/227249/greatest-gap-between-rich-and-poor-by-us-state/", #Puerto Rico (PUR)
+    "ROC", 37.5 # this is Russia Olympic Comitee
+    ) 
+
+# bind with dataframe
+d1 <- bind_rows(d, missing_gini)
+```
+
+
+```{r}
+# rvest olympics table from wikipedia
+# https://en.wikipedia.org/wiki/2020_Summer_Olympics_medal_table
+
+web_page <- rvest::read_html("https://en.wikipedia.org/wiki/2020_Summer_Olympics_medal_table")
+medals_table <- web_page %>% 
+                rvest::html_table(header = TRUE, fill = TRUE)
+medals <- medals_table[[2]]
+
+medals <- medals %>% 
+    mutate(Team = stringr::str_replace(Team, '\\*', '')) %>% 
+    mutate(Country_ioc = stringr::str_sub(Team, -4,-2),
+           Rank = as.numeric(Rank)) %>% 
+    filter(Rank >= 0)
+
+rm(web_page, medals_table)
+```
+
+```{r}
+# join and calculate total
+d2 <- left_join(medals, d1, by = c("Country_ioc")) %>% 
+      mutate(Country_iso2 = countrycode::countrycode(Country_ioc, origin = 'ioc', destination = 'iso2c'),
+             Country_iso2 = ifelse(Country_ioc == "ROC", "RU", Country_iso2),
+             Country_iso2 = tolower(Country_iso2)) %>% 
+      mutate(Rank_total7 = round(Total * (gini/100)^7, digits = 4),
+             Rank_gold = round(Gold * (gini/100)^8, digits = 4)) %>% 
+      arrange(-Rank_total7) %>% 
+      mutate(Rank = 1:nrow(.)) %>% 
+      mutate(Flag = sprintf('![](http://flagpedia.net/data/flags/mini/%s.png)', Country_iso2)) %>% 
+      select("Rank", "Flag", "Team", "Gold", "Silver", "Bronze", "Total" , "Gini" = "gini", "Olympic Gini Index" = "Rank_total7")
+
+```
+
+
+$Olympic Gini Index = Total Medals * Gini^7$
+
+```{r results='asis', echo=FALSE}
+# show table
+kable(head(d2, 10))
+```
