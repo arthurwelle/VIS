@@ -8,7 +8,7 @@ output: html_document
 # E-mail: arthurwelle@gmail.com
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
-# Carregando os pacotes
+# packages
 library(tidyverse) 
 library(rvest)
 library(countrycode)
