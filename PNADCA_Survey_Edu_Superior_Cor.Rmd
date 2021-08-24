@@ -1,0 +1,223 @@
+---
+title: "Análise PNAD Continua Anual com o survey"
+output:
+  html_document:
+    toc: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Autor: Arthur Welle
+# E-mail: arthurwelle@gmail.com
+
+# evita notação científica nos números
+options(scipen=999)
+
+# clear ram
+gc()
+
+library(data.table)
+library(tidyverse)
+library(survey)
+
+options( survey.lonely.psu = "adjust" )
+
+# diretorio onde estão as pnads
+if( Sys.info()[['sysname']] == "Linux"){
+  diretorio <- "/home/arthur/pCloudDrive/TESE MEI/DADOS/PNAD_Survey/"                         # linux 
+  diretorio_pnadca <- "/home/arthur/pCloudDrive/TESE MEI/DADOS/PNADCA_Data.Table/"            # linux
+}
+
+if( Sys.info()[['sysname']] == "Windows"){
+  diretorio_pnad <- "C:/Users/arthur/Desktop/TESE/DADOS/PNAD_Survey/"                 # windows
+  diretorio_pnadca <- "C:/Users/arthur/Desktop/TESE/DADOS/PNADCA_Data.Table/"         # windows
+}
+```
+
+
+# 0. Funções auxiliares
+
+
+```{r eval=FALSE}
+#indica o caminho para o download dos deflatores
+deflator.ftp <- "ftp://ftp.ibge.gov.br/Trabalho_e_Rendimento/Pesquisa_Nacional_por_Amostra_de_Domicilios_continua/Anual/Microdados/Visita/Documentacao_Geral/deflator_PNADC_2019.xls"
+
+destino1 <- paste0(tempfile(), ".xls")
+
+#faz download
+download.file( paste0( deflator.ftp ) , destino1 , mode = "wb" )
+
+#lê o arquivo e coleta o primeiro trimestre móvel de cada trimestre, e tranforma em um número para o matching
+deflator_pnadc_anual <- readxl::read_excel( path = destino1 ) 
+#deflator_pnadc_anual <- readxl::read_excel( path = "./deflator_PNADC_2019.xls")
+
+#coloca tudo em minúscula , boa prática
+colnames(deflator_pnadc_anual) <- c("Ano","Trimestre", "UF", "co1", "co1e", "co2", "co2e", "co3")
+
+#Há no arquivo cinco deflatores disponibilizados, sendo eles: CO1, CO1e, CO2, CO2e e CO3. Abaixo detalhamos ao que eles se referem.
+#
+#	- CO1: Deflator, a preços médio do próprio ano, utilizado para variáveis de rendimento habitual;
+#	- CO1e: Deflator, a preços médio do próprio ano, utilizado para variáveis de rendimento efetivo;
+#	- CO2: Deflator, a preços médio do último ano, utilizado para variáveis de rendimento habitual;
+#	- CO2e: Deflator, a preços médio do último ano, utilizado para variáveis de rendimento efetivo;
+#	- CO3: Deflator, a preços médio do último ano, utilizado para a linha de U$ 1,90 do indicador 1.1.1 dos Objetivos de Desenvolvimento Sustentável (ODS).
+```
+
+
+```{r}
+###################################################################################
+# função para tranformar em objeto survey
+f_survey_object_pnadca <- function(d){
+   # preliminary survey design
+  pre_stratified <-
+      survey::svydesign(
+          ids = ~ UPA , 
+          strata = ~ Estrato , 
+          weights = ~ V1031 , 
+          data = d ,
+          nest = TRUE
+      )
+  
+  # post-stratification targets
+  df_pos <-  data.frame( posest = unique( d$posest ) , Freq = unique( d$V1030 ) ) # V1030 projeção da população
+  
+  # final survey design object
+  pnad_design <- survey::postStratify( pre_stratified , ~ posest , df_pos )
+      
+  return(pnad_design)
+}
+
+```
+
+
+
+
+```{r}
+# função que carrega pnad em data.table transforma em survey e faz update
+f_carrega_pnadca <- function(Ano){
+
+  # load do arquivo
+  d <- data.table::fread(file = paste0(diretorio_pnadca, Ano, ".gz"), showProgress=TRUE, encoding ="UTF-8")
+  
+  # retira variáveis de deflacionamento, pq virá novo ano sempre
+  d <- d[, c("co1","co1e","co2","co2e","co3") := NULL]
+  
+  # adiciona deflator novamente
+  d <- merge(d, deflator_pnadc_anual, by= c("Ano","Trimestre", "UF") )
+  
+  # recode de variáveis
+  d[, Peso := V1032] # V1032 = peso
+  d[, Idade := V2009] # V2009 = idade
+  d[, Sexo := V2007] # 1-homen; 2- mulher
+  d[, Cor := V2010] # ;1	Branca ;2	Preta ;3	Amarela ;4	Parda  ;5	Indígena ;9	Ignorado
+  d[Cor %in% c(1,3), Cor2 := 1] # branco ou amerelo
+  d[Cor %in% c(2,4), Cor2 := 2] # negro (preto + pardo)
+  d[Cor %in% c(5,9), Cor2 := 3] # outros (indigena e ignorado)
+  d[, RedeEnsino := V3002A] # 1	Privada; 2	Pública,
+  d[V3003A == 8, EstudanteSuperior := 1] # Estudante do ensino superior
+  
+  return(d)
+}
+
+# Ano <- 2019
+#d <- f_carrega_pnadca(2019)
+# TESTE analise 
+# survey::svytotal(x = ~ Sexo, 
+#                  design = d,
+#                  na.rm = TRUE, 
+#                  level = 0.95) 
+
+
+```
+
+
+# 2. Proporção de participação no ensino superior público por raça/cor
+
+## PNADCA
+
+```{r}
+# analise com data.table
+d1 <- d[EstudanteSuperior == 1, .(n = sum(Peso)), by = .(Sexo, Cor2, RedeEnsino)]
+
+#fwrite(d1, file = "./output.csv", sep = ";", dec = ",")
+```
+
+
+```{r}
+f_pnadca_prop_SuperiorPublico_cor <- function(Ano){
+  d <- f_carrega_pnadca(Ano = Ano)
+
+  # transforma em objeto survey
+  d <- f_survey_object_pnadca(d)
+  
+  # proporção mulheres negras dentre estudantes ensino superior público
+  d1 <- survey::svyratio( 
+                   numerator = ~(Sexo == 2 & Cor2  == 2 & EstudanteSuperior == 1 & RedeEnsino == 2),
+                   design = d, 
+                   denominator = ~(EstudanteSuperior == 1 & RedeEnsino == 2), 
+                   na.rm = TRUE, 
+                   level = 0.95)
+  # corrige o dataframe para output mais bonito
+  d1 <- cbind(as.data.frame(d1$ratio), as.data.frame(confint(d1)) ) %>%
+            dplyr::rename( Valor= 1, IC_Inf = 2, IC_Sup = 3) %>%
+            dplyr::mutate(Grupo = "Mulheres negras",
+                          SE = as.numeric(d1$var)) 
+  
+  # proporção mulheres brancas dentre estudantes ensino superior público
+  d2 <- survey::svyratio( 
+                   numerator = ~(Sexo == 2 & Cor2  == 1 & EstudanteSuperior == 1 & RedeEnsino == 2),
+                   design = d, 
+                   denominator = ~(EstudanteSuperior == 1 & RedeEnsino == 2), 
+                   na.rm = TRUE, 
+                   level = 0.95)
+  # corrige o dataframe para output mais bonito
+  d2 <- cbind(as.data.frame(d2$ratio), as.data.frame(confint(d2)) ) %>%
+            dplyr::rename( Valor= 1, IC_Inf = 2, IC_Sup = 3) %>%
+            dplyr::mutate(Grupo = "Mulheres bracas",
+                          SE = as.numeric(d2$var)) 
+  
+   # proporção homens negros dentre estudantes ensino superior público
+  d3 <- survey::svyratio( 
+                   numerator = ~(Sexo == 1 & Cor2  == 2 & EstudanteSuperior == 1 & RedeEnsino == 2),
+                   design = d, 
+                   denominator = ~(EstudanteSuperior == 1 & RedeEnsino == 2), 
+                   na.rm = TRUE, 
+                   level = 0.95)
+  # corrige o dataframe para output mais bonito
+  d3 <- cbind(as.data.frame(d3$ratio), as.data.frame(confint(d3)) ) %>%
+            dplyr::rename( Valor= 1, IC_Inf = 2, IC_Sup = 3) %>%
+            dplyr::mutate(Grupo = "Homens negros",
+                          SE = as.numeric(d3$var)) 
+  
+  # proporção homens brancas dentre estudantes ensino superior público
+  d4 <- survey::svyratio( 
+                   numerator = ~(Sexo == 1 & Cor2  == 1 & EstudanteSuperior == 1 & RedeEnsino == 2),
+                   design = d, 
+                   denominator = ~(EstudanteSuperior == 1 & RedeEnsino == 2), 
+                   na.rm = TRUE, 
+                   level = 0.95)
+  # corrige o dataframe para output mais bonito
+  d4 <- cbind(as.data.frame(d4$ratio), as.data.frame(confint(d4)) ) %>%
+            dplyr::rename( Valor= 1, IC_Inf = 2, IC_Sup = 3) %>%
+            dplyr::mutate(Grupo = "Homens bracos",
+                          SE = as.numeric(d4$var)) 
+  
+  
+  # junsta
+  d5 <- rbind(d1, d2, d3, d4)
+  
+  return(d5)
+}
+```
+
+
+```{r}
+# analise com survey
+d2 <- f_pnadca_prop_SuperiorPublico_cor(Ano = 2019)
+```
+
+
+
+
