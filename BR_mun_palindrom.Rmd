@@ -1,0 +1,96 @@
+---
+title: "BR_palindrom"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(geobr)
+library(data.table)
+
+# tema para ggplot
+tema_mapa <- ggplot2::theme(
+      plot.title = element_text(face = "bold", size =22),
+      plot.background = element_rect(fill = 'white', colour = 'white'),
+      strip.text = element_text(size = 16),
+      plot.title.position = "plot",
+      legend.title = element_text(size = 16), 
+      legend.text  = element_text(size = 16),
+      plot.caption = element_text(size = 14)
+     )
+```
+
+
+```{r}
+#br <- geobr::read_municipality()
+# https://github.com/RobertMyles/simplefeaturesbr/blob/master/data/br_municipalities.rda
+load("./br_municipalities.rda")
+```
+
+```{r}
+d <- as.data.table(br_municipalities)
+d[, rev := intToUtf8(rev(utf8ToInt(name))), by = .(1:nrow(d))]
+d[, iq := tolower(name) == tolower(rev)]
+d[, centroid := sf::st_centroid(geometry)]
+
+d[name == "Erere", name := "Ererê"]
+d[name == "Axixa", name := "Axixá"]
+d[name == "Mucum", name := "Muçum"]
+```
+
+
+
+
+```{r}
+# color1 <- "#2a9bcb"
+# color2 <- "#e1f2fe" 
+# color3 <- "red"
+# 
+# color1 <- "#731dd8"
+# color2 <- "#48a9a6" 
+# color3 <- "black"
+
+color1 <- "#9fd356"
+color2 <- "#3c91e6" 
+color3 <- "black"
+  
+g <- ggplot2::ggplot() + 
+    geom_sf(data = d,
+            mapping = aes(geometry = geometry),
+            size = .1,
+            colour = color1, 
+            fill = color1) +
+    geom_sf(data = d[iq == TRUE,],
+            mapping = aes(geometry = geometry),
+            size = .1,
+            colour = color3, 
+            fill = color3) + 
+    ggsflabel::geom_sf_label_repel(data = d[iq == TRUE,],
+             aes(label = name),
+             size = 5,
+             force = 2,
+             nudge_x = 0,
+             seed = 10) +
+    coord_sf(xlim = c(-73, -35),
+           ylim = c(-33, 5),
+           crs = 4674) +
+    labs(title = "Palindromic municipalities in Brazil",
+         caption = "@arthurwelle") +  
+    theme_void() +
+    tema_mapa +
+    theme(
+        panel.background = element_rect(fill = color2, colour = color2),
+        plot.background = element_rect(fill = color2, colour = color2))
+g
+
+ggplot2::ggsave(plot = g,
+                filename = "BRmap2.png", 
+                path = "./", 
+                dpi = "retina",
+                width = 6,
+                height = 6
+)
+```
+
+
