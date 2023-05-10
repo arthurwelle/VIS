@@ -1,0 +1,207 @@
+---
+title: "Brazil Trade"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+# Author: Arthur Welle
+# E-mail: arthurwelle@gmail.com
+
+# avoid cientific notation
+options(scipen=999)
+
+# clear ram
+gc()
+
+library(data.table)
+library(tidyverse)
+library(ggtext)
+library(ComexstatR)
+library(countrycode)
+library(imfr)
+library(forcats)
+library(readxl)
+
+# ggplot theme
+tema_padrao <- ggplot2::theme(
+            text = element_text( face = "bold", size = 12),
+            plot.title = ggtext::element_textbox_simple(size = 18, face = "bold", margin = margin(0,0,10,0)),
+            plot.subtitle = element_text(size = 10),
+            plot.caption = ggtext::element_markdown(size = 9),            
+            plot.title.position = "plot",
+            plot.caption.position =  "plot",
+            legend.title = element_blank(),
+            legend.position = "bottom",
+            axis.text.x = element_text(color = "black", size = 12, vjust = 0.5, angle = 90),
+            axis.text.y = element_text(color = "black", size = 12, face="bold"),
+            axis.title = element_text( size = 12, face = "bold"),
+            legend.text = element_text(size = 12, face = "bold"))
+
+
+# save plos
+f_ggsave <- function(x, Nome, w = 8, h = 5){
+ggplot2::ggsave(plot = x,
+                filename = paste0(Nome, ".png"), 
+                path = "./", 
+                dpi = "retina", 
+                width = w, 
+                height = h)}
+
+# rolling average
+MM <- function(x, k) {
+                y <- c(1:(length(x))) 
+                      for(i in 1:(length(x)-(k-1))) {
+                            y[i+(k-1)] <- mean(x[(i+0):(i+(k-1))]) 
+                      }
+                y[1:k] <- NA  
+                return(y)
+}
+
+# função que calcula número índice (para ser aplicada sobre a inflação acumulada)
+f_n_indice <- function(x) {
+   k <- x[length(x)]/x
+   return(k)
+}
+```
+
+
+```{r}
+# list of countries in portugues http://comexstat.mdic.gov.br/pt/tabela-auxiliar
+countries_pt <- readxl::read_excel("./20230510_164451_TABELAS_AUXILIARES.xlsx") |>
+  as.data.table()
+
+countries_pt <- countries_pt[Bloco %in% c("Ásia (Exclusive Oriente Médio)",
+                              "África",
+                              "Europa",
+                              "América Central e Caribe",
+                              "Oriente Médio",
+                              "América do Sul",
+                              "Oceania",
+                              "América do Norte"),]
+```
+
+
+```{r}
+# featch data from Comex 
+# exports
+exp <- ComexstatR::pesquisar_comex_stat(ano_inicial = 1997, 
+                                      ano_final = 2023,
+                                      tipo_op = "exp",
+                                      detalha_mes = TRUE,
+                                      detalhamentos = c("pais")
+                                      ) |>
+  as.data.table()
+
+# imports
+imp <- ComexstatR::pesquisar_comex_stat(ano_inicial = 1997, 
+                                      ano_final = 2023,
+                                      tipo_op = "imp",
+                                      detalha_mes = TRUE,
+                                      detalhamentos = c("pais")
+                                      ) |>
+  as.data.table()
+```
+
+
+```{r}
+exp[, flow := "Exp"]
+imp[, flow := "Imp"]
+d <- rbind(exp, imp)
+d[, vlFob := as.numeric(vlFob)]
+d[flow == "Imp",  vlFob := vlFob * -1]
+
+# agregate to partner (net exports)
+d <- d[, .(Saldo = sum(vlFob, na.rm = TRUE)), by = .(coAno, coMes, noPaispt)]
+
+# join with continents
+d <- countries_pt[d, on = c("Países" = "noPaispt")]
+
+# recode group
+d[, partner := "Other"]
+d[Países == "China", partner := "China"]
+d[Bloco == "América Central e Caribe", partner := "Latin America"]
+d[Bloco == "América do Sul", partner := "Latin America"]
+d[Países == "México", partner := "Latin America"]
+d[Países == "Estados Unidos", partner := "United States"]
+d[Países == "Singapura", partner := "Singapore"]
+d[Bloco == "Europa", partner := "Europe"]
+
+# agregate for the partner-groups created
+d <- d[, .(Saldo = sum(Saldo, na.rm = TRUE)), by = .(coAno, coMes, partner)]
+d[, date := lubridate::ym(paste0(coAno, coMes))]
+```
+
+```{r}
+# CPI
+cpi <- imfr::imf_data(database_id = "IFS", 
+                    indicator = "PCPI_IX", 
+                    country = "US",
+                    freq = "M",
+                    start = 1996)
+
+cpi$deflator <- f_n_indice(cpi$PCPI_IX)
+cpi <- as.data.table(cpi)
+cpi[, iso2c := NULL]
+cpi[, date := lubridate::ym(year_month)]
+cpi <- cpi[, c("deflator", "date")]
+```
+
+```{r}
+# join with CPI and deflate the series
+d <- cpi[d, on = "date"]
+d[is.na(deflator), deflator := 1]
+d[, Valor_defl := Saldo * deflator]
+d[, Valor_defl := as.numeric(Valor_defl)]
+d[order(date), MM12M_defl := MM(Valor_defl, 12), by = .(partner)]
+```
+
+```{r}
+d1 <- d[, .(total = sum(MM12M_defl)), by = .(date)]
+```
+
+
+```{r}
+name <- "SaldoBalComercial_Destino"
+d[, partner := forcats::fct_relevel(partner, "China", "United States", "Latin America","Europe", "Other", "Singapore" )]
+
+
+g <- ggplot()  +
+  geom_col(data = d,
+           aes(x = date,
+               y = MM12M_defl,
+               fill = partner),
+           color = "transparent",
+           size = 0) +
+  geom_line(data = d1,
+           aes(x = date,
+               y = total),
+           color = "black",
+           size = 1) +  
+  geom_hline(yintercept = 0,
+             size = 1.5) +
+  scale_y_continuous(labels = scales::dollar_format(scale = 1/1e9, accuracy = .1),
+                     expand = c(0, 0),
+                     limits = c(-3e9, 7.5e9)) +
+  scale_x_date(expand = c(0.0, 0.0),
+               breaks = scales::date_breaks("3 years"),
+               labels = scales::date_format("%Y")) +
+  scale_fill_brewer(palette = "Set1",
+                    direction = 1) +
+  labs(x = element_blank(),
+       y = "Billions (FOB US$)") + 
+  theme_bw() +
+  tema_padrao +
+  theme(axis.text.x = element_text(angle = 0))
+
+g <- g +
+  labs(title = "Brazil´s monthly trade surplus/defict by partner - 12 months rolling average ",
+       subtitle = "CPI deflated values to May, 2023",
+       caption = "Source: Comex.<br>
+                  Reproducible code (in R) for this plot on <span style='color:#0072B2;'>Github</span>.")
+
+
+f_ggsave(g, paste0(name, "_CT_EN"), w = 7.5, h = 6.5)
+g
+```
