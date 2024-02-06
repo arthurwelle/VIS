@@ -1,0 +1,480 @@
+---
+title: "Censo 2022 - Endereços"
+subtitle:  "Projeções dos impactos sócio-econômicos das mudanças climáticas através do ZARC"
+author: "Arthur Welle"
+format:
+  html
+toc: true
+toc-location: left
+toc-title: "Índice"
+fig-cap-location: top
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE)
+
+# Autor: Arthur Welle
+# E-mail: arthurwelle@gmail.com
+
+library(tidyverse)
+library(data.table)
+library(patchwork)
+
+# evita notação científica nos números
+options(scipen=999)
+
+# clear ram
+invisible(gc())
+
+tema_padrao <- ggplot2::theme(
+            text = element_text(size = 12),
+            plot.title = ggtext::element_textbox_simple(size = 19, face = "bold", margin = margin(0,0,0,0)),
+            plot.subtitle = element_text(size = 14, face = "plain"),
+            plot.caption = element_text(size = 9, face = "plain"),
+            plot.title.position = "plot",
+            plot.caption.position =  "plot",
+            axis.text.x = element_text(color = "black", size = 7, vjust = 0.5),
+            axis.text.y = element_text(color = "black", size = 7),
+            axis.title = element_text( size = 12),
+            legend.text = element_text(size = 12, face = "bold"))
+
+f_ggsave <- function(x, Nome, w = 5, h = 5){
+ggplot2::ggsave(plot = x,
+                filename = paste0(Nome, ".png"), 
+                path = "./", 
+                dpi = "retina", 
+                width = w, 
+                height = h)}
+
+```
+
+# 1. Download de dados
+
+```{r}
+mun <- geobr::read_municipality(showProgress = FALSE, simplified = TRUE, code_muni = 35) 
+```
+
+
+https://ftp.ibge.gov.br/Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos/Censo_Demografico_2022/Coordenadas_enderecos/UF/
+
+
+# 2. Leitura
+
+COD_ESPECIE
+
+1=Domicílio particular
+2=Domicílio coletivo
+3=Estabelecimento agropecuário
+4=Estabelecimento de ensino
+5=Estabelecimento de saúde
+6=Estabelecimento de outras finalidades
+7=Edificação em construção
+8=Estabelecimento religioso
+
+
+NV_GEO_COORD	Nível de geocodificação
+
+1=Endereço - coordenada original do Censo 2022
+2=Endereço - coordenada modificada (apartamentos em um mesmo número no logradouro*)
+3=Endereço - coordenada estimada (endereços originalmente sem coordenadas ou coordenadas inválidas**)
+4=Face de quadra
+5=Localidade
+6=Setor censitário
+
+
+```{r}
+d <- fread("./35.csv") 
+d1 <- d[ LATITUDE  > -23.83 & LATITUDE  < -23.32 &
+        LONGITUDE > -47.12 & LONGITUDE < -46.13 &
+        COD_ESPECIE %in% c(4,8) &
+        NV_GEO_COORD %in% c(1:3),   ]
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +  
+  geom_point(data = d1, 
+             aes(x = LONGITUDE,
+                 y = LATITUDE, 
+                 color = as.factor(COD_ESPECIE)),
+             size = 0.1,
+             alpha = 0.2) +
+  facet_wrap(~COD_ESPECIE) +
+  coord_sf(xlim = c(-47, -46),
+           ylim = c(-23.8, -23.3),
+           crs = 4674) +
+  theme_bw()
+```
+
+
+
+# maior número de casos dentro de um raio arbitrário
+
+```{r}
+# remotes::install_github("https://github.com/gtm19/angularsweep")
+```
+
+```{r}
+d2 <- d1[COD_ESPECIE %in% c(8)] # só igrejas
+d3 <- d2[sample(1:nrow(d2), 4000)] # computador não aguenta todos os pontos dependendo do tamanho do circulo
+
+ggplot() +
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +  
+  geom_point(data = d3, 
+             aes(x = LONGITUDE,
+                 y = LATITUDE, 
+                 color = as.factor(COD_ESPECIE)),
+             size = 0.1,
+             alpha = 0.2) +
+  facet_wrap(~COD_ESPECIE) +
+  coord_sf(xlim = c(-47, -46),
+           ylim = c(-23.8, -23.3),
+           crs = 4674) +
+  theme_bw()
+```
+
+```{r}
+# raio, um km em graus vezes número de km, brinque aqui para encontrar a melhor posição
+r <- 0.008 * 1
+
+point_sweep <- angularsweep::sweep_points(d3, xcol = "LONGITUDE", ycol = "LATITUDE", radius = r)
+head(point_sweep, 1)
+
+```
+
+
+LONGITUDE -46.81847
+
+LATITUDE  -23.54738
+
+```{r}
+ggplot() +
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +  
+  geom_point(data = d2, 
+             aes(x = LONGITUDE,
+                 y = LATITUDE, 
+                 color = as.factor(COD_ESPECIE)),
+             size = 0.1,
+             alpha = 0.2) +
+  ggforce::geom_circle(data = point_sweep[1,], 
+              aes(x0 = LONGITUDE, y0 = LATITUDE, r = r),
+              color = "black",
+              inherit.aes = FALSE,
+              size = 1.2) +
+  scale_color_brewer(palette = "Set1",
+                     name = "Estabelecimentos religiosos") +
+  coord_sf(xlim = c(-47, -46),
+           ylim = c(-23.8, -23.3),
+           crs = 4674) +
+  labs(title = "Estabelecimentos religiosos na região metropolitana de São Paulo",
+       x = element_blank(),
+       y = element_blank(),
+       caption = "Elaboração @arthurwelle com base nos dados do IBGE.") +
+  theme_bw() +
+  tema_padrao +
+  theme(legend.position = "none")
+```
+
+
+
+```{r}
+circle <- sf::st_buffer(sf::st_point(c(-46.81847, -23.54738)), r)
+circle <- sf::st_sf(another_column = 1, geometry = sf::st_geometry(circle))
+sf::st_crs(circle) <- sf::st_crs(mun)
+
+sf_points <- sf::st_as_sf(d2, coords = c("LONGITUDE", "LATITUDE"), crs = sf::st_crs(mun))
+
+points_inside_circle <- sf::st_intersects(sf_points, circle, sparse = FALSE) |> 
+                        as.data.frame() |> 
+                        filter(V1 == TRUE)
+```
+
+
+```{r}
+# ggplot() +
+#   geom_sf(data = mun,
+#           mapping = aes(geometry = geom),
+#           size = .1,
+#           fill = "transparent",
+#           colour = "gray20") +  
+#   geom_point(data = d2, 
+#              aes(x = LONGITUDE,
+#                  y = LATITUDE, 
+#                  color = as.factor(COD_ESPECIE)),
+#              size = 0.1,
+#              alpha = 0.2) +
+#   geom_sf(data = circle,
+#           mapping = aes(geometry = geometry),
+#           size = 6,
+#           fill = "black",
+#           colour = "black") +   
+#   scale_color_brewer(palette = "Set1",
+#                      name = "Estabelecimentos religiosos") +
+#   coord_sf(xlim = c(-47, -46),
+#            ylim = c(-23.8, -23.3),
+#            crs = 4674) +
+#   labs(title = "Estabelecimentos religiosos na região metropolitana de São Paulo",
+#        x = element_blank(),
+#        y = element_blank(),
+#        caption = "Elaboração @arthurwelle com base nos dados do IBGE.") +
+#   theme_bw() +
+#   tema_padrao +
+#   theme(legend.position = "none")
+```
+
+
+basemapR OSM não tem opção de alpha, por isso faço um quadrado para colocar entre os layers e controlar o alpha
+
+```{r}
+# Define rectangle coordinates in latitude and longitude
+rectangle_coords <- matrix(c(
+  -46  , -23.2,   # Upper right corner
+  -47.1, -23.2,   # Upper left corner
+  -47.1, -23.9,   # Lower left corner (longitude, latitude)
+  -46  , -23.9,   # Lower right corner
+  -46  , -23.2    # Closing the rectangle
+), ncol = 2, byrow = TRUE)
+
+# Create an sf object for the rectangle
+rectangle_sf <- sf::st_sf(geometry = sf::st_sfc(sf::st_polygon(list(rectangle_coords))))
+
+# Set CRS (Coordinate Reference System) for latitude and longitude
+rectangle_sf <- sf::st_set_crs(rectangle_sf, sf::st_crs(mun))
+```
+
+
+```{r}
+ggplot() +
+  basemapR::base_map(sf::st_bbox(sf_points), 
+                     increase_zoom = 1, 
+                     basemap = "voyager",
+                     nolabels = TRUE) +  
+  geom_sf(data = rectangle_sf,
+          mapping = aes(geometry = geometry),
+          fill = "white", 
+          color = "transparent",
+          alpha = 0.5) +  
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +
+  geom_point(data = d2,
+             aes(x = LONGITUDE,
+                 y = LATITUDE,
+                 color = as.factor(COD_ESPECIE)),
+             size = 0.1,
+             alpha = 0.2) +
+  geom_sf(data = circle,
+          mapping = aes(geometry = geometry),
+          size = 6,
+          fill = "black",
+          colour = "black") +
+  ggspatial::annotation_scale(location = "br", 
+                              width_hint = 0.3) +  
+  scale_color_brewer(palette = "Set1",
+                     name = "Estabelecimentos religiosos") +
+  coord_sf(xlim = c(-47, -46.1),
+           ylim = c(-23.8, -23.3),
+           crs = 4674) +
+  labs(title = "Estabelecimentos religiosos na região metropolitana de São Paulo",
+       x = element_blank(),
+       y = element_blank(),
+       caption = "Elaboração @arthurwelle com base nos dados do IBGE.") +
+  theme_bw() +
+  tema_padrao +
+  theme(legend.position = "none")
+
+```
+
+
+
+# 1Km em osasco e arredores 
+
+a localização geral foi encontrado anteriormente com sample e circulo de 5km
+
+```{r}
+# faz uma seleção
+d3 <- d2[LATITUDE  > -23.6 & LATITUDE  < -23.48 &
+        LONGITUDE > -46.87 & LONGITUDE < -46.77 ]
+```
+
+
+```{r}
+ggplot() +
+  geom_sf(data = rectangle_sf,
+          mapping = aes(geometry = geometry),
+          fill = "white", 
+          color = "transparent",
+          alpha = 0.5) +  
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +
+  geom_point(data = d3,
+             aes(x = LONGITUDE,
+                 y = LATITUDE,
+                 color = as.factor(COD_ESPECIE)),
+             size = 0.1,
+             alpha = 0.2) +
+  scale_color_brewer(palette = "Set1",
+                     name = "Estabelecimentos religiosos") +
+  coord_sf(xlim = c(-47, -46.1),
+           ylim = c(-23.8, -23.3),
+           crs = 4674) +
+  labs(title = "Estabelecimentos religiosos na região metropolitana de São Paulo",
+       x = element_blank(),
+       y = element_blank(),
+       caption = "Elaboração @arthurwelle com base nos dados do IBGE.") +
+  theme_bw() +
+  tema_padrao +
+  theme(legend.position = "none")
+```
+
+
+```{r}
+r <- 0.008 * 1
+
+point_sweep <- angularsweep::sweep_points(d3, xcol = "LONGITUDE", ycol = "LATITUDE", radius = r)
+head(point_sweep, 1)
+```
+
+LONGITUDE -46.85157	
+LATITUDE  -23.53747
+
+total 175
+
+```{r}
+arrows <- tibble(
+    x1 = c(-46.535),
+    x2 = c(-46.845),
+    y1 = c(-23.47), 
+    y2 = c(-23.53))
+```
+
+```{r}
+g <- ggplot() +
+  basemapR::base_map(sf::st_bbox(sf_points), 
+                     increase_zoom = 3, 
+                     basemap = "voyager",
+                     nolabels = TRUE) +  
+  geom_sf(data = rectangle_sf,
+          mapping = aes(geometry = geometry),
+          fill = "white", 
+          color = "transparent",
+          alpha = 0.4) +  
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .1,
+          fill = "transparent",
+          colour = "gray20") +
+  geom_point(data = d2,
+             aes(x = LONGITUDE,
+                 y = LATITUDE),
+             color = "#8390fa",
+             size = 0.2,
+             alpha = 0.2) +
+  geom_curve(data = arrows, 
+          aes(x = x1, 
+              y = y1, 
+              xend = x2, 
+              yend = y2),
+          arrow = arrow(length = unit(0.08, "inch")), 
+                        size = 0.7,
+                        color = "gray10", 
+                        curvature = 0.4) +  
+  ggforce::geom_circle(data = point_sweep[1,], 
+              aes(x0 = LONGITUDE, y0 = LATITUDE, r = r),
+              color = "black",
+              inherit.aes = FALSE,
+              size = 1.2) +
+  ggspatial::annotation_scale(location = "br", 
+                              width_hint = 0.3) +  
+  coord_sf(xlim = c(-46.95, -46.3),
+           ylim = c(-23.8, -23.4),
+           crs = 4674) +
+  labs(title = "Estabelecimentos religiosos na região metropolitana de São Paulo",
+       subtitle = "Local com maior número de estabelecimentos em um raio de 1 km: 175 no oeste de Carapicuiba",
+       x = element_blank(),
+       y = element_blank(),
+       caption = "Elaboração @arthurwelle com base nas Coordenadas Geográficas dos Endereços do Censo Demográfico 2022 - IBGE.") +
+  theme_bw() +
+  tema_padrao +
+  theme(legend.position = "none")
+
+g
+```              
+
+
+```{r}
+sf_points2 <- sf::st_as_sf(d3, coords = c("LONGITUDE", "LATITUDE"), crs = sf::st_crs(mun))
+```
+
+
+
+```{r}
+g1 <- ggplot() +
+  basemapR::base_map(sf::st_bbox(sf_points2), 
+                     increase_zoom = 4, 
+                     basemap = "voyager",
+                     nolabels = TRUE) +  
+  geom_sf(data = mun,
+          mapping = aes(geometry = geom),
+          size = .3,
+          fill = "transparent",
+          colour = "gray20") +
+  geom_point(data = d2,
+             aes(x = LONGITUDE,
+                 y = LATITUDE),
+             color = "#8390fa",
+             size = 1,
+             alpha = 0.5) +
+  ggforce::geom_circle(data = point_sweep[1,], 
+              aes(x0 = LONGITUDE, y0 = LATITUDE, r = r),
+              color = "black",
+              inherit.aes = FALSE,
+              size = 1.2) +
+  scale_color_brewer(palette = "Set1") +
+  coord_sf(xlim = c(-46.87, -46.83),
+           ylim = c(-23.55, -23.525),
+           crs = 4674) +
+  labs(title = element_blank(),
+       x = element_blank(),
+       y = element_blank(),
+       caption = element_blank()) +
+  theme_bw() +
+  tema_padrao +
+  theme(legend.position = "none",
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        plot.margin = grid::unit(c(0,0,-5,-5), "mm"),
+        axis.ticks = element_blank(),
+        axis.ticks.length = unit(0, "mm"))
+
+g1
+
+```   
+
+```{r}
+g0 <- g + inset_element(g1, left = 0.65, bottom = 0.625, right = 0.995, top = 0.999)
+
+f_ggsave(g0, "enderecos_censo", 9, 6.8)
+```
+
+
+
