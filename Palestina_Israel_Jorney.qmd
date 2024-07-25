@@ -1,0 +1,137 @@
+---
+title: "palestine"
+format: html
+editor: visual
+---
+
+```{r}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE)
+
+# Author: Arthur Welle
+# E-mail: arthurwelle@gmail.com
+
+library(tidyverse)
+library(sf)
+library(tidygeocoder)
+library(osrm)
+library(ggrepel)
+library(tigris)
+library(geobr)
+library(rmapshaper)
+library(ggimage)
+library(magick)
+library(patchwork)
+```
+
+Israel township, Preble County, Ohio, United States
+Palestine, Anderson County, Texas, United States
+
+Palestina SP 3535002
+Palestina AL 2706208
+
+Israelândia GO 5210307
+
+```{r}
+us <- tigris::states(resolution = "20m", year = 2022, cb = TRUE) |> 
+      filter(!(NAME %in% c("Alaska", "Hawaii", "Puerto Rico"))) |> 
+      rmapshaper::ms_simplify(keep = 0.05) 
+
+br <- geobr::read_state() |> 
+      rmapshaper::ms_simplify(keep = 0.005) 
+```
+
+
+```{r}
+d <- tribble(
+ ~country, ~city, ~address,
+  "US", "Israel, OH", "Preble County, Ohio, United States",
+  "US", "Palestine, TX",  "Palestine, Anderson County, Texas, United States",
+  "BR", "Palestina, AL ", "Palestina, AL, Brazil",
+  "BR", "Israelândia, GO",  "Israelândia, GO, Brazil"
+)
+
+d <- d |> 
+  tidygeocoder::geocode(address, method = "osm") |>  
+  sf::st_as_sf(coords = c("long", "lat"), crs = sf::st_crs("EPSG:4326"))
+
+# create lat long columns
+d$Lat <- sf::st_coordinates(d)[,2]
+d$Lon <- sf::st_coordinates(d)[,1]
+
+d_br <- d |> filter(country == "BR")
+d_us <- d |> filter(country == "US")
+```
+
+```{r}
+route_US <- osrm::osrmRoute(src = d$geometry[1], dst = d$geometry[2])
+route_BR <- osrm::osrmRoute(src = d$geometry[3], dst = d$geometry[4])
+
+```
+
+```{r}
+pin <- magick::image_transparent(magick::image_read("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Google_Maps_pin.svg/137px-Google_Maps_pin.svg.png"), 'white')
+
+pin <- "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d1/Google_Maps_pin.svg/137px-Google_Maps_pin.svg.png"
+```
+
+
+```{r}
+g_us <- ggplot() +
+  geom_sf(data = us) +
+  geom_sf(data = route_US,
+          color = "red",
+          linewidth = 1.5) +  
+  ggimage::geom_image(aes(x = Lon-0.1,
+                          y = Lat+1.5, 
+                          image = pin), 
+             data = d_us, 
+             size = 0.08) +
+  ggrepel::geom_label_repel(
+    data = d_us,
+    seed = 2,
+    aes(label = city,
+        geometry = geometry),
+    stat = "sf_coordinates",
+    size = 5,
+    nudge_x = 1,
+    nudge_y = 1
+  ) +
+  theme_void()
+
+g_us
+```
+
+
+```{r}
+g_br <- ggplot() +
+  geom_sf(data = br) +
+  geom_sf(data = route_BR,
+          color = "red",
+          linewidth = 1.5) +  
+  ggimage::geom_image(aes(x = Lon-0.1,
+                          y = Lat+3,
+                          image = pin), 
+             data = d_br, 
+             size = 0.08) +
+  ggrepel::geom_label_repel(
+    data = d_br,
+    seed = 2,
+    aes(label = city,
+        geometry = geometry),
+    stat = "sf_coordinates",
+    size = 5,
+    nudge_x = 1,
+    nudge_y = 1,
+  ) +
+  theme_void()
+
+g_br
+```
+
+```{r}
+g <- g_us + g_br
+g
+
+ggsave(filename = "routs.png", plot = g, width = 15, height = 15)
+```
+
